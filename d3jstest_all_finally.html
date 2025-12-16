@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>D3 Sankey from ECharts Config</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+  <style>
+    body { font-family: sans-serif; }
+    svg { width: 2400px; height: 1200px; }
+    .link { fill: none; stroke-opacity: 0.4; }
+    .node rect { fill-opacity: 0.9; cursor: move; }
+    .node text { font-size: 40px; pointer-events: none; }
+  </style>
+</head>
+<body>
+
+<svg></svg>
+
+<script>
+  const linkOrder = {
+  "DeepSeek->Self:5": 0,
+  "DeepSeek->Self:4": 1,
+  "DeepSeek->Self:3": 2,
+  "NA->Self:4": 0,
+  "NA->Self:3": 1,
+  "NA->Self:2":2,
+  "Self:3->Instructor:3":0,
+  "Self:3->Instructor:4":1,
+  "Self:3->Instructor:2":2,
+  "Self:2->Instructor:2":0,
+  };
+
+  const targetLinkOrder = {
+  "Self:3->Instructor:2": 0, // 上
+  "Self:2->Instructor:2": 1  // 下
+};
+
+
+  const rawData = {
+    nodes: [
+      { name: 'DeepSeek' },
+      { name: 'Doubao' },
+      { name: 'KIMI' },
+      { name: 'ChatGLM' },
+      { name: 'NA' },
+      { name: 'Self:5' },
+      { name: 'Self:4' },
+      { name: 'Self:3' },
+      { name: 'Self:2' },
+      { name: 'Instructor:5' },
+      { name: 'Instructor:4' },
+      { name: 'Instructor:3' },
+      { name: 'Instructor:2' }
+    ],
+    links: [
+      { source: 'KIMI', target: 'Self:3', value: 1 },
+      { source: 'KIMI', target: 'Self:4', value: 9 },
+      { source: 'KIMI', target: 'Self:5', value: 8 },
+      { source: 'Doubao', target: 'Self:5', value: 3 },
+      { source: 'Doubao', target: 'Self:4', value: 8 },
+      { source: 'Doubao', target: 'Self:3', value: 9 },
+      { source: 'DeepSeek', target: 'Self:5', value: 6 },
+      { source: 'DeepSeek', target: 'Self:3', value: 6 },
+      { source: 'DeepSeek', target: 'Self:4', value: 12 },
+      { source: 'NA', target: 'Self:2', value: 1 },
+      { source: 'NA', target: 'Self:3', value: 9 },
+      { source: 'NA', target: 'Self:4', value: 4 },
+      { source: 'ChatGLM', target: 'Self:3', value: 7 },
+      { source: 'ChatGLM', target: 'Self:4', value: 3 },
+      { source: 'Self:5', target: 'Instructor:5', value: 8 },
+      { source: 'Self:5', target: 'Instructor:4', value: 9 },
+      { source: 'Self:3', target: 'Instructor:2', value: 5 },
+      { source: 'Self:3', target: 'Instructor:3', value: 17 },
+      { source: 'Self:3', target: 'Instructor:4', value: 10 },
+      { source: 'Self:4', target: 'Instructor:3', value: 11 },
+      { source: 'Self:4', target: 'Instructor:4', value: 19 },
+      { source: 'Self:4', target: 'Instructor:5', value: 6 },
+      { source: 'Self:2', target: 'Instructor:2', value: 1 }
+    ]
+  };
+
+  // Create node index mapping
+  const nameToIndex = {};
+  rawData.nodes.forEach((node, i) => {
+    nameToIndex[node.name] = i;
+  });
+
+  // Convert string source/target to indices
+  const sankeyData = {
+    nodes: rawData.nodes.map(d => ({ ...d })),
+    links: rawData.links.map(link => ({
+      source: nameToIndex[link.source],
+      target: nameToIndex[link.target],
+      value: link.value
+    }))
+  };
+
+  const svg = d3.select("svg");
+  const { width, height } = svg.node().getBoundingClientRect();
+
+// 每一列节点的垂直顺序（数值越小越靠上）
+const nodeOrder = {
+  // 左列（模型）
+  "DeepSeek": 0,
+  "Doubao": 1,
+  "KIMI": 2,
+  "ChatGLM": 3,
+  "NA": 4,
+
+  // 中列（Self）
+  "Self:5": 0,
+  "Self:4": 1,
+  "Self:3": 2,
+  "Self:2": 3,
+
+  // 右列（Instructor）
+  "Instructor:5": 0,
+  "Instructor:4": 1,
+  "Instructor:3": 2,
+  "Instructor:2": 3
+};
+
+  const sankey = d3.sankey()
+  .nodeWidth(20)
+  .nodePadding(10)
+  .extent([[10, 10], [width - 10, height - 10]])
+
+  // 控制节点在同一列的上下顺序（你原来那套可以删了）
+  .nodeSort((a, b) => {
+    if (a.depth !== b.depth) return 0;
+    return a.index - b.index; // 保持你 nodes 数组顺序
+  })
+
+  // ⭐⭐⭐ 控制“从节点出来的流”的顺序 ⭐⭐⭐
+  .linkSort((a, b) => {
+     if (a.target.name !== "Instructor:2") {
+      const ka = `${a.source.name}->${a.target.name}`;
+      const kb = `${b.source.name}->${b.target.name}`;
+      return (linkOrder[ka] ?? 999) - (linkOrder[kb] ?? 999);
+     }
+
+    if (a.target.name === "Instructor:2" && b.target.name === "Instructor:2") {
+      const ta = `${a.source.name}->${a.target.name}`;
+      const tb = `${b.source.name}->${b.target.name}`;
+      return (targetLinkOrder[ta] ?? 999) - (targetLinkOrder[tb] ?? 999);
+    }
+  return 0;
+});
+
+  const { nodes, links } = sankey(sankeyData);
+  
+
+  
+  // Draw links
+  svg.append("g")
+    .attr("fill", "none")
+    .attr("stroke", "#999")
+    .selectAll("path")
+    .data(links)
+    .join("path")
+      .attr("class", "link")
+      .attr("d", d3.sankeyLinkHorizontal())
+      .attr("stroke-width", d => Math.max(1, d.width));
+
+  // Draw nodes
+  const node = svg.append("g")
+    .selectAll("g")
+    .data(nodes)
+    .join("g")
+      .attr("class", "node");
+
+  node.append("rect")
+    .attr("x", d => d.x0)
+    .attr("y", d => d.y0)
+    .attr("width", d => d.x1 - d.x0)
+    .attr("height", d => d.y1 - d.y0)
+    .attr("fill", d => d3.schemeCategory10[d.index % 10]);
+
+  node.append("text")
+    .attr("x", d => d.x0 - 6)
+    .attr("y", d => (d.y1 + d.y0) / 2)
+    .attr("dy", "0.35em")
+    .attr("text-anchor", "end")
+    .text(d => d.name)
+    .filter(d => d.x0 < width / 2)
+    .attr("x", d => d.x1 + 6)
+    .attr("text-anchor", "start");
+   
+</script>
+</body>
+</html>
